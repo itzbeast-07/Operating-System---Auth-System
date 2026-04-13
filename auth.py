@@ -151,7 +151,7 @@ def change_password(username):
     if len(new_password) < 8:
         print("Password must be at least 8 characters.")
         return
-
+    
     hashed_password = hash_password(new_password)
 
     conn = get_connection()
@@ -185,3 +185,16 @@ def create_admin():
         print("Default admin created (username: admin, password: Admin@123)")
 
     conn.close()
+
+def login_gui(username, password):
+    conn = get_connection()
+    cursor = conn.cursor()
+    hashed_password = hash_password(password)
+    cursor.execute("SELECT password, role FROM users WHERE username = ?", (username,))
+    result = cursor.fetchone()
+    if result is None:
+        return "User not found"
+    stored_password, role = result
+    if stored_password != hashed_password:
+        return "Incorrect password"
+    return f"Success:{role}"
