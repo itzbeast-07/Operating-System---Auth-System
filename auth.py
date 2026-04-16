@@ -198,3 +198,25 @@ def login_gui(username, password):
     if stored_password != hashed_password:
         return "Incorrect password"
     return f"Success:{role}"
+
+def register_gui(username, password, email):
+    if len(username) > 20:
+        return "Username too long"
+
+    if not is_strong_password(password):
+        return "Weak password"
+
+    hashed_password = hash_password(password)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, password, role, email) VALUES (?, ?, ?, ?)",
+            (username, hashed_password, "user", email)
+        )
+        conn.commit()
+        return "Success"
+    except:
+        return "Username already exists"
