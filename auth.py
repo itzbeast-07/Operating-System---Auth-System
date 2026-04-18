@@ -4,6 +4,45 @@ from logger import log_activity
 from admin import *
 import time
 import sqlite3
+from email_service import send_otp_email
+
+otp_store = {}
+
+def start_login(username, password):
+    conn = get_connection()
+    cursor = conn.cursor()
+    hashed_password = hash_password(password)
+    cursor.execute(
+        "SELECT password, role, email FROM users WHERE username = ?",
+        (username,)
+    )
+    result = cursor.fetchone()
+    if result is None:
+        return "User not found"
+    stored_password, role, email = result
+    if stored_password != hashed_password:
+        return "Incorrect password"
+    otp = generate_otp()
+    expiry = time.time() + 60
+    otp_store[username] = (otp, expiry, role)
+    send_otp_email(email, otp)
+    return "OTP_SENT"
+
+
+
+def verify_otp(username, entered_otp):
+    if username not in otp_store:
+        return "No OTP found"
+    otp, expiry, role = otp_store[username]
+    if time.time() > expiry:
+        del otp_store[username]
+        return "OTP expired"
+    if entered_otp == otp:
+        del otp_store[username]
+        return f"Success:{role}"
+    return "Incorrect OTP"
+
+
 
 def register():
     username = input("Enter username: ")
@@ -30,26 +69,22 @@ def register():
         log_activity("WARNING", f"Duplicate registration attempt: {username}")
     conn.close()
 
+
+
 def login():
     username = input("Enter username: ")
     password = input("Enter password: ")
-
     hashed_password = hash_password(password)
-
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute("SELECT password, role, failed_attempts, lock_time FROM users WHERE username = ?", (username,))
     result = cursor.fetchone()
-
     if result is None:
         print("User not found!")
         log_activity("WARNING", f"Login failed - user not found: {username}")
         conn.close()
         return
-
     stored_password, role, failed_attempts, lock_time = result
-
     if failed_attempts >= 3:
         if time.time() - lock_time < 120:
             print("Account temporarily locked. Try again later.")
@@ -60,28 +95,22 @@ def login():
             cursor.execute("UPDATE users SET failed_attempts = 0 WHERE username = ?", (username,))
             conn.commit()
             failed_attempts = 0
-
     if stored_password == hashed_password:
         otp = generate_otp()
         print("Your OTP is:", otp)
-
         entered_otp = input("Enter OTP: ")
-
         if entered_otp == otp:
             print(f"Login successful! Logged in as {role}")
             log_activity("INFO", f"Login successful: {username} ({role})")
             cursor.execute("UPDATE users SET failed_attempts = 0 WHERE username = ?", (username,))
             conn.commit()
-
             if role == "admin":
                 admin_menu()
             else:
                 user_menu(username)
-
         else:
             print("Incorrect OTP!")
             log_activity("WARNING", f"OTP failed for user: {username}")
-
     else:
         failed_attempts += 1
         if failed_attempts >= 3:
@@ -108,9 +137,7 @@ def user_menu(username):
         print(f"\nWelcome {username} (User)")
         print("1. Change Password")
         print("2. Logout")
-
         choice = input("Choose option: ")
-
         if choice == "1":
             change_password(username)
         elif choice == "2":
@@ -147,23 +174,18 @@ def admin_menu():
 
 def change_password(username):
     new_password = input("Enter new password: ")
-
     if len(new_password) < 8:
         print("Password must be at least 8 characters.")
         return
-    
     hashed_password = hash_password(new_password)
-
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute(
         "UPDATE users SET password = ? WHERE username = ?",
         (hashed_password, username)
     )
     conn.commit()
     conn.close()
-
     print("Password updated successfully!")
     log_activity("INFO", f"Password changed for user: {username}")
 
@@ -171,19 +193,16 @@ def change_password(username):
 def create_admin():
     conn = get_connection()
     cursor = conn.cursor()
-
     admin_username = "admin"
     admin_password = hash_password("Admin@123")
-
     cursor.execute("SELECT * FROM users WHERE username = ?", (admin_username,))
     if cursor.fetchone() is None:
         cursor.execute(
-            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-            (admin_username, admin_password, "admin")
-        )
+    "INSERT INTO users (username, password, role, email) VALUES (?, ?, ?, ?)",
+    ("admin", admin_password, "admin", "example@gmail.com")
+)
         conn.commit()
         print("Default admin created (username: admin, password: Admin@123)")
-
     conn.close()
 
 def login_gui(username, password):
@@ -199,18 +218,16 @@ def login_gui(username, password):
         return "Incorrect password"
     return f"Success:{role}"
 
+
+
 def register_gui(username, password, email):
     if len(username) > 20:
         return "Username too long"
-
     if not is_strong_password(password):
         return "Weak password"
-
     hashed_password = hash_password(password)
-
     conn = get_connection()
     cursor = conn.cursor()
-
     try:
         cursor.execute(
             "INSERT INTO users (username, password, role, email) VALUES (?, ?, ?, ?)",
